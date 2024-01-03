@@ -1,0 +1,26 @@
+version: "3.9"
+services:
+  mysql:
+    image: mysql:8
+    container_name: spark_mysql
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./mysql/data:/var/lib/mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: admin1234
+      MYSQL_DATABASE: dev
+      MYSQL_USER: learning_spark
+      MYSQL_PASSWORD: spark1234
+
+  postgresql:
+    image: postgres:14
+    container_name: spark_postgresql
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./pg/data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: learning_spark
+      POSTGRES_PASSWORD: spark1234
+      POSTGRES_DB: dev
