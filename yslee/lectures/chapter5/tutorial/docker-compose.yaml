@@ -1,0 +1,59 @@
+version: "3.9"
+services:
+  pyspark:
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+      args:
+        # These are build args for building pyspark docker image.
+        # If you want build your own image, then replace below args with yours.
+        # You can check spark_checksum with specific versions in https://archive.apache.org/dist/spark/
+        # Also, if you want check image specifics when building docker image, please refer to https://jupyter-docker-stacks.readthedocs.io/en/latest/using/specifics.html#build-an-image-with-a-different-version-of-spark
+        - spark_version=3.2.4
+        - hadoop_version=2.7
+        - spark_checksum=7b79d2b5b1816040a369d876072c9a9da132af1075b8523dcd24d3fde9a9afde70a73bbd5d1cbc428b233f6697c7969fea2ead4164b76fd1209a61a49fa260b9
+        - openjdk_version=8
+    container_name: pyspark-3.2.4
+    # user: root
+    ports:
+      # {HOST_PORT}:{CONTAINER_PORT}
+      - "10000:8888"
+    volumes:
+      # Connect your local directory to pyspark with volumes
+      - ~/Desktop/spark_study/LearningSparkV2:/home/jovyan/work
+    # environment:
+    # GRANT_SUDO: yes
+
+  mysql:
+    image: mysql:8.0.30
+    container_name: spark_mysql
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./mysql/data:/var/lib/mysql
+      # NOTE(yslee): These are mysql init scripts, for creating container for the first time.
+      - "./scripts/schema.sql:/docker-entrypoint-initdb.d/1.sql"
+      - "./scripts/data.sql:/docker-entrypoint-initdb.d/2.sql"
+    environment:
+      MYSQL_ROOT_PASSWORD: admin1234
+      MYSQL_DATABASE: dev
+      MYSQL_USER: learning_spark
+      MYSQL_PASSWORD: spark1234
+
+  # If you want to test with postgresql, uncomment below.
+  # Also, you need to init postgresql with proper data.
+  #postgresql:
+  #image: postgres:14
+  #container_name: spark_postgresql
+  #ports:
+  #  - "5432:5432"
+  #volumes:
+  #  - ./pg/data:/var/lib/postgresql/data
+  #environment:
+  #POSTGRES_USER: learning_spark
+  #POSTGRES_PASSWORD: spark1234
+  #POSTGRES_DB: dev
+
+networks:
+  default:
+    driver: bridge
