@@ -1,3 +1,4 @@
+# ./spark-3.1.1-bin-hadoop2.7/bin/spark-submit --driver-class-path /Users/magae/project/data/github.com/magaeTube/learning_spark/jdbc/mysql-connector-java-8.0.30.jar shkim/projects/ch5/spark_mysql.py
 from pyspark.sql import SparkSession, Row
 
 spark = (SparkSession.builder
