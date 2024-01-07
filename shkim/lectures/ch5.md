@@ -289,5 +289,6 @@ spark.sql("SELECT id, plusOneInt(values) AS values FROM table").show()
 * built_in_functions.sql
 
 ## 고차 함수
-* reduce할 때 에러 발생
+* reduce할 때 에러 발생. 이것은 3.4 버전 이상으로해야함.
+* 대신 그보다 낮은 버전에서는 `aggregate` 사용하면 됨. (차이강 ㅣㅆ는지는 봐야함.)
 ![img_5.png](img_5.png)
