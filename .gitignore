@@ -1,2 +1,5 @@
 .cache
 .ipython
+
+# Ignore python cache
+__pycache__/

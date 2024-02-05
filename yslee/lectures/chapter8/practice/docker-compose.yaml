@@ -5,16 +5,12 @@ services:
       context: .
       dockerfile: ../Dockerfile
       args:
-        # These are build args for building pyspark docker image.
-        # If you want build your own image, then replace below args with yours.
-        # You can check spark_checksum with specific versions in https://archive.apache.org/dist/spark/
-        # Also, if you want check image specifics when building docker image, please refer to https://jupyter-docker-stacks.readthedocs.io/en/latest/using/specifics.html#build-an-image-with-a-different-version-of-spark
-        - spark_version=3.2.4
-        - hadoop_version=2.7
-        - spark_checksum=7b79d2b5b1816040a369d876072c9a9da132af1075b8523dcd24d3fde9a9afde70a73bbd5d1cbc428b233f6697c7969fea2ead4164b76fd1209a61a49fa260b9
-        - openjdk_version=8
+        - spark_version=$SPARK_VERSION
+        - hadoop_version=$HADOOP_VERSION
+        - spark_checksum=$SPARK_CHECKSUM
+        - openjdk_version=$OPENJDK_VERSION
     platform: linux/amd64
-    image: "pyspark-notebook/pyspark-jupyter-lab:${spark_version}"
+    image: "pyspark-notebook/pyspark-jupyter-lab:${SPARK_VERSION}"
     container_name: pyspark-jupyter-lab
     # user: root
     ports:
@@ -25,7 +21,6 @@ services:
       # Connect your local directory to pyspark with volumes
       - ~/Desktop/spark_study/LearningSparkV2:/home/jovyan/work
       - ./utils:/home/jovyan/work/utils
-    # environment:
     # GRANT_SUDO: yes
 
   zookeeper:
@@ -69,7 +64,7 @@ services:
       - 9092:9092
     volumes:
       - spark_data:/data:rw
-      - ./data/kafka1/data:/var/lib/kafka/data
+      - ./data/kafka2/data:/var/lib/kafka/data
     environment:
       KAFKA_BROKER_ID: 2
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
@@ -88,7 +83,7 @@ services:
       - 9093:9093
     volumes:
       - spark_data:/data:rw
-      - ./data/kafka1/data:/var/lib/kafka/data
+      - ./data/kafka3/data:/var/lib/kafka/data
     environment:
       KAFKA_BROKER_ID: 3
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
