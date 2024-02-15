@@ -263,3 +263,228 @@ resultDF.writeStream.foreach(ForeachWriter()).start()
 * https://people.csail.mit.edu/matei/papers/2013/sosp_spark_streaming.pdf
 * https://metrics.dropwizard.io/4.2.0/
 * https://spark.apache.org/docs/latest/structured-streaming-programming-guide.html#creating-streaming-dataframes-and-streaming-dataset
+
+
+## 상태 정보 유지 스트리밍 집계
+
+### 시간과 연관 없는 집계
+**전체 집계**
+* 모든 데이터를 통들어 집계
+```python
+runningCount = sensorReadings.groupBy().count()
+```
+
+**그룹화 집계**
+* 각 그룹이나 키별로 집계
+```python
+baselineValues = sensorReadings.groupBy("sensorId").mean("value")
+```
+
+**모든 내장 집계 함수들**
+* sum(), mean(), stddev(), countDistinct(), collect_set()
+
+**함께 계산된 다중 집계 연산**
+```python
+from pyspark.sql.functions import *
+multipleAggs = (sensorReadings.groupBy("sensorId")
+                              .agg(count("*"), mean("value").alias("baselineValue"), collect_set("errorCode").alias("allErrorCodes")))
+```
+
+**사용자 정의 집계 함수**
+* 모든 사용자가 정의 집계 함수를 사용할수 있다.
+
+<br>
+
+### 이벤트 타임 윈도우에 의한 집계
+* 시간 범위에 따라 구분된 데이터에 대한 집계가 필요함
+* 이벤트 타임을 이용
+```python
+from pyspark.sql.functions import *
+(sensorReadings.groupBy("sensorId", window("eventTime", "5 minute"))
+               .count())
+```
+![img_16.png](img_16.png)
+* 위의 코드처럼 5분 단위 간격으로 집계하면 위 그림처럼 처리가 될 것이다.
+
+<br>
+
+**10분 단위의 시간 간격을 5분씩 움직임**
+```python
+(sensorReadings.groupBy("sensorId", window("eventTime", "10 minute", "5 minute"))
+               .count())
+```
+![img_17.png](img_17.png)
+* 위와 같이 하면 12:07의 이벤트는 두개의 그룹에 들어가서 집계됨.
+* 그러면 시간이 지나도 집계가 되지만 상태 사이즈가 무한하게 증가하는 문제를 야기하게 된다.
+* 쿼리에 최신시간 제한을 알려주기 위해 워터마크를지정할 수 있음.
+
+<br>
+
+**늦게 도착하는 데이터를 위한 워터마크 다루기**
+* 워터마크 : 처리된 데이터에서 쿼리에 의해 검색된 최대 이벤트 시간보다 뒤처지는 이벤트 시간의 동적인 임계값
+* 워터마크 지연 : 뒤쳐지는 간격으로  늦게 도착하는 데이터를 얼마나 오래 기다릴 수 있는지 정의
+```python
+(sensorReadings.withWatermark("eventTime", "10 minutes")
+               .groupBy("sensorId", window("eventTime", "10 minutes", "5 minutes"))
+               .mean("value"))
+```
+* groupBy()를 호출하기 전에 withWatermark()를 호출해야함.
+* 시간 간격을 지정하는데 사용한 시간 컬럼과 동일한 컬럼을 사용해야 함.
+* 쿼리가 실행되면 eventTime 칼럼의 최댓값을 지속적으로 추적하면서 워터마크를 갱신
+
+<br>
+
+**워터마크 보장의 의미**  
+* 말이 어렵..
+
+**지원되는 출력 모드들**
+* 타임 윈도우가 들어가는 집계들은 세 가지 출력 모드를 쓸 수 있음
+* 갱신 모드
+  * 모든 마이크로 배치가 집계가 갱신된 부분의 열만 출력
+  * 파케이나 ORC 같은 파일 기반 포맷에서 집계를 출력하는 것은 사용할 수 없음.
+* 전체 모드
+  * 모든 마이크로 배치는 모든 갱신된 집계를 변화가 있는지 없는지 상관없이 출력
+  * 상태 정보 크기와 메모리 사용량이 무한하게 증가할 수 있음
+* 추가 모드
+  * 워터마크를 쓰는 이벤트 타임 윈도우 집계에 대해서만 사용
+  * 워터마크가 집계를 더 이상 갱신하지 않는 것이 확실한 시점에 각 키와 최종 집계값을 출력
+  * 장점 : 파일 같은 추가 전용 스트리밍 싱크에 집계 내용을 쓸 수 있다는 것
+  * 단점 : 워터마크 시간만큼 출력도 늦어지게 되는 것.
+
+<br>
+
+## 스트리밍 조인 
+
+### 스트림-정적 데이터 조인
+* 데이터 스트림을 정적 데이터세트와 조인
+```python
+# 정적 데이터 프레임 읽기
+impressionsStatic = spark.read.
+
+# 스트리밍 데이터 프레임 읽기
+clicksStream = spark.readStream.
+
+# adId 컬럼으로 조인
+matched = clicksStream.join(impressionsStatic, "adId")
+```
+
+* inner join뿐만 아니라 left outer join, right outer join도 지원함
+```python
+matched = clicksStream.join(impressionStatic, "adId", "leftOuter")
+```
+
+* 스트림-정적 조인에 대해 알아두어야할 사항
+  * 스트림-정적 조인은 무상태 연산이므로 워터마킹이 필요하지 않는다.
+  * 정적 데이터 프레임은 스트리밍 마이크로 배치마다 조인이 되기 때문에 처리 속도를 올리려면 캐시를 해야 함.
+  * 정적 데이터 프레임이 정의된 소스에서의 데이터가 변경되는 경우 그 변경이 스트리밍 쿼리에서 보일지의 여부는 정책에 따라 다름.
+
+<br>
+
+### 스트림-스트림 조인
+* 스트림-스트림 조인에서 문제점은 어느 시점에서든 한쪽 데이터세트의 상태가 불완전하여 매칭되는 것을 찾는 것이 더 어렵다는 점.
+* 이벤트 순서가 뒤바뀌어 올 수도 있고 그 사이 시간 간격이 얼마나 될지도 보장이 안되기 때문
+
+<br>
+
+**선택적 워터마킹을 사용한 내부 조인**
+
+```python
+# 스트리밍 데이터 프레임
+impressions = spark.readStream.
+
+# 스트리 데이터
+clicks = spark.readStream. 
+matched = impressions.join(clicks, "adId")
+```
+* 쿼리가 실행될 때 처리 엔진이 스트림-스트림 조인임을 감지함.
+
+![img_27.png](img_27.png)
+* 12:04꺼 impressions을 받아 버퍼에 저장
+* 12:13꺼 clicks를 받을때까지 버퍼에 있는 데이터와 조인 시도
+* 12:13꺼 clicks와 조인
+* 그러나 위와 같은 상황은 엔진이 얼마나 긴 시간동안 버퍼링해야할지 지정되어 있지 않음
+  * 이러할 때 무한하게 버퍼링할 수 있어 매칭되지 않은 정보가 계속 쌓일 수 있음
+* 상태 정보를 제한하기 위해 필요한 정보
+  * 두 이벤트가 생성되는 시간 차이가 최대 얼마인가?
+  * 데이터 소스에서 처리 엔진까지 하나의 이벤트는 얼마나 지연될 수 있는가? --> 이벤트가 기록된 시간과 실제로 받은 시간의 차이
+* 상태 정보를 유지하기 위한 절차
+  * 엔진이 얼마나 지연된 입력을 허용할지 워터마크 지연 정의
+  * 두 입력 간에 이벤트 타임 제한을 정의해서 시간 제한을 벗어나는 레코드가 있는지 알 수 있게 한다.
+    * 시간 범위에 대한 조인 조건 (leftTime between rightTime and rightTIme + interval 1 hour)
+    * 이벤트 타임 윈도우 조인 (leftTimeWindow = rightTimeWindow)
+  * ```python
+    # 워터마크 정의
+    impressionsWithWatermark = (impressions.selectExpr("adId AS impressionAdId", "impressionTime")
+                                           .withWatermark("impressionTime", "2 hours"))
+
+    clicksWithWatermark = (clicks.selectExpr("adId AS clickAdId", "clickTime")
+                                 .withWatermark("clickTime", "3 hours"))
+
+    # 시간 범위 조건으로 내부 조인
+    (impressionsWithWatermark.join(clicksWithWatermark, expr("""
+                                                            clickAdId = impressionAdId AND
+                                                            clickTime BETWEEN impressionTime AND impressionTime + interval 1 hour
+                                                        """)))
+    ```
+    
+<br>
+
+**워터마킹을 이용한 외부 조인**  
+* 내부 조인은 두 종류의 매치되는 이벤트를 모두 받았을 때만 결과를 출력함. 
+* 한쪽에서 존재하지 않는다면 다른 한쪽은 데이터의 존재 여부를 알 수 없음.
+* 이럴 때 스트림-스트림 외부 조인을 사용해야 함
+```python
+# 시간 범위 조건으로 좌측 외부 조인
+(impressionsWithWatermark.join(clicksWithWatermark, expr("""
+                                                        clickAdId = impressionAdId AND
+                                                        clickTime BETWEEN impressionTime AND impressionTime + interval 1 hour
+                                                    """), "leftOuter"))
+```
+* 외부 조인에서는 워터마크 지연이나 이벤트 타임 제한이 필수임 (엔진이 어느 시점부터 이벤트가 매치되지 않을지 알아야함.)
+
+<br>
+
+## 임의의 상태 정보 유지 연산
+
+### mapGroupsWithState()를 써서 임의의 상태 정보 유지 연산 모델링하기
+
+
+<br>
+
+## 성능 튜닝
+* 정형화 스트리밍은 스파크 SQL 엔진을 사용하므로 동일한 파라미터들로 튜닝할 수 있음
+* 하지만 처리하는 데이터양이 적기 때문에 다르게 튜닝해야함.
+
+<br>
+
+**클러스터 자원 배치**  
+* 24/7로 돌아가는 스트리밍용 클러스터들은 자원을 적절하게 배치하는 것이 중요. 특성에 맞춰서 자원 할당
+* 무상태 쿼리는 더 많은 코어를, 상태 정보 유지 쿼리는 메모리를 필요로 함
+
+<br>
+
+**셔플을 위한 파티션 숫자**  
+* 파티션을 많이 해서 연산 규모를 쪼개는 것은 오버헤드를 일으키고 처리량은 감소시킴
+* 상태 정보 유지 연산과 수 초에서 수 분의 트리거 간격을 갖는 스트리밍 쿼리에는 파티션을 기본 200을 코어 숫자 대비 두 세배 많은 정도로 수정
+
+<br>
+
+**안정성을 위한 소스의 처리량 제한**  
+* 위 두개를 진행하고도 문제가 발생할 수 있기에 소스 전송률을 제한할 수 있음
+* 너무 제한을 낮게 하면 자원을 제대로 쓰지 못함
+
+<br>
+
+**동일 스파크 애플리케이션에서 다중 스트리밍 쿼리 실행**
+* 동일한 SparkContext나 SparkSession에서 여러 개의 스트리밍 쿼리를 실행
+* 이는 스파크 드라이버의 자원을 사용하기에 실행할 수 있는 쿼리의 개수가 제한되고 제한이 넘으면 병목되거나 메모리 제한을 넘을 수 있음
+* 각 쿼리가 별도의 스케줄러 풀에서 돌도록 설정하여 쿼리 사이에 안정적인 자원 할당이 이루어지도록 한다
+```python
+# 스트리밍 쿼리 query1을 스케줄러 풀 pool1에서 실행
+spark.sparkContext.setLocalProperty("spark.scheduler.pool", "pool1")
+df.writeStream.queryName("query1").format("parquet").start(path1)
+
+# 스트리밍 쿼리 query2를 스케줄러 풀 pool2에서 실행
+spark.sparkContext.setLocalProperty("spark.scheduler.pool", "pool2")
+df.writeStream.queryName("query2").format("parquet").start(path2)
+```
